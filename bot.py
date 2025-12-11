@@ -287,6 +287,78 @@ async def delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error deleting message: {e}")
         await query.edit_message_text("❌ Failed to delete the message. It may have already been deleted.")
 
+async def generate_ai_message() -> str:
+    """Generate a realistic anonymous message using AI."""
+    if not openai_client:
+        return None
+    
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": """You are generating realistic anonymous confessions/messages for a university anonymous channel called 'PU Freedom'.
+
+Generate ONE short, authentic-sounding message that a real student might post anonymously. Mix different types:
+
+Types to rotate:
+1. Confessions (crushes, secrets, embarrassing moments)
+2. Funny observations about university life
+3. Relatable student struggles (exams, sleep, food)
+4. Cringe moments or awkward situations
+5. Random thoughts or shower thoughts
+6. Questions to the community
+7. Unpopular opinions
+8. Rants about small annoyances
+
+Requirements:
+- Keep it SHORT (1-3 sentences max)
+- Sound natural and authentic
+- No vulgar words
+- Relatable to university students
+- Mix serious and funny
+- Vary the tone and topic
+
+Just return the message text, nothing else."""
+                },
+                {
+                    "role": "user",
+                    "content": "Generate one anonymous message:"
+                }
+            ],
+            temperature=0.9,
+            max_tokens=100
+        )
+        
+        return response.choices[0].message.content.strip()
+        
+    except Exception as e:
+        logger.error(f"Error generating AI message: {e}")
+        return None
+
+async def auto_post_messages(application):
+    """Automatically post AI-generated messages every ~6 minutes (10 per hour)."""
+    while True:
+        try:
+            # Wait 6 minutes (360 seconds) between posts
+            await asyncio.sleep(360)
+            
+            # Generate message
+            message = await generate_ai_message()
+            
+            if message:
+                # Post to channel
+                await application.bot.send_message(
+                    chat_id=CHANNEL_ID,
+                    text=message
+                )
+                logger.info(f"Auto-posted AI message: {message[:50]}...")
+            
+        except Exception as e:
+            logger.error(f"Error in auto-post: {e}")
+            await asyncio.sleep(60)  # Wait 1 minute on error
+
 async def main():
     """Start the bot."""
     if not BOT_TOKEN or not CHANNEL_ID:
@@ -313,6 +385,11 @@ async def main():
     await application.initialize()
     await application.start()
     await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+    
+    # Start auto-posting in background
+    if openai_client:
+        asyncio.create_task(auto_post_messages(application))
+        logger.info("Auto-posting enabled: 10 messages per hour")
     
     # Keep the bot running
     try:
