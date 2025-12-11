@@ -45,76 +45,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(welcome_text)
 
-async def moderate_content(text: str) -> dict:
-    """
-    Check content for vulgar words using keyword filter + AI backup.
-    Returns: {'allowed': bool, 'warning': str or None, 'reason': str or None}
-    """
-    # Comprehensive vulgar word list (case-insensitive)
-    vulgar_words = [
-        # English
-        'fuck', 'shit', 'dick', 'cock', 'pussy', 'anal', 'bitch', 'ass', 'bastard',
-        'cunt', 'whore', 'slut', 'sex', 'penis', 'vagina', 'porn', 'nude',
-        # Russian
-        'хуй', 'пизда', 'ебать', 'ебал', 'ебаный', 'блять', 'блядь', 'сука', 
-        'хер', 'жопа', 'говно', 'срать', 'ссать', 'мудак', 'пидор', 'шлюха', 'сучка',
-    ]
-    
-    # Check for vulgar words (case-insensitive)
-    text_lower = text.lower()
-    for word in vulgar_words:
-        # Check if word exists as whole word or part of text
-        if word in text_lower:
-            return {
-                'allowed': False, 
-                'warning': None, 
-                'reason': f'Contains vulgar word: "{word}"'
-            }
-    
-    # If no keywords found, use AI as backup check
-    if not openai_client:
-        return {'allowed': True, 'warning': None, 'reason': None}
-    
-    try:
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": """You are a backup content moderator for 'PU Freedom'.
 
-ONLY block if you find vulgar/profane words that weren't caught by the keyword filter.
-Look for creative spellings, slang, or other crude language.
-
-ALLOW ALL topics - only block vulgar WORDS.
-
-Respond in JSON format:
-{
-  "action": "allow" | "block",
-  "reason": "brief explanation if blocked"
-}"""
-                },
-                {
-                    "role": "user",
-                    "content": f"Check this message:\n\n{text}"
-                }
-            ],
-            temperature=0.3,
-            max_tokens=100
-        )
-        
-        import json
-        result = json.loads(response.choices[0].message.content)
-        
-        if result['action'] == 'block':
-            return {'allowed': False, 'warning': None, 'reason': result['reason']}
-        else:
-            return {'allowed': True, 'warning': None, 'reason': None}
-            
-    except Exception as e:
-        logger.error(f"Moderation error: {e}")
-        # On error, allow the message (fail open, not closed)
-        return {'allowed': True, 'warning': None, 'reason': None}
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send help message when /help is issued."""
@@ -190,26 +121,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sent_message = None
         
         # Check minimum length for text messages
-        content_to_check = message.text or message.caption or ""
         if message.text and len(message.text.strip()) < 10:
             await message.reply_text(
                 "❌ Your message is too short.\n\n"
                 "Please send at least 10 characters to post anonymously."
             )
             return
-        
-        # Moderate text content
-        if content_to_check:
-            moderation = await moderate_content(content_to_check)
-            
-            if not moderation['allowed']:
-                await message.reply_text(
-                    f"❌ Your message contains vulgar language and was not posted.\n\n"
-                    f"Reason: {moderation['reason']}\n\n"
-                    f"PU Freedom welcomes all topics and opinions, but please avoid profane words. Rephrase and try again!"
-                )
-                logger.info(f"Message blocked from user {update.effective_user.id}: {moderation['reason']}")
-                return
         
         # Handle text messages
         if message.text:
