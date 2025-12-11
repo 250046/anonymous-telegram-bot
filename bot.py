@@ -57,10 +57,11 @@ async def moderate_content(text: str) -> dict:
         'cunt', 'whore', 'slut', 'sex', 'penis', 'vagina', 'porn', 'nude',
         # Russian
         'хуй', 'пизда', 'ебать', 'ебал', 'ебаный', 'блять', 'блядь', 'сука', 
-        'хер', 'жопа', 'говно', 'срать', 'ссать', 'мудак', 'пидор', 'шлюха',
+        'хер', 'жопа', 'говно', 'срать', 'ссать', 'мудак', 'пидор', 'шлюха', 'сучка',
         # Uzbek
-        'qotoq', 'qo\'taq', 'jalap', 'sik', 'sikmoq', 'jinni', 'orospi', 
-        'fahisha', 'yalang', 'qo'taq',
+        'qotoq', "qo'taq", 'jalap', 'sik', 'sikmoq', 'sikish', 'sikaman', 'jinni', 
+        'orospi', 'fahisha', 'foxisha', 'fohisha', 'yalang', 'yala naxoy', 'am', 
+        'suka', 'buvingni ami', "ko't", "ko'tingga sikaman", 'seks',
     ]
     
     # Check for vulgar words (case-insensitive)
@@ -192,8 +193,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message = update.message
         sent_message = None
         
-        # Moderate text content
+        # Check minimum length for text messages
         content_to_check = message.text or message.caption or ""
+        if message.text and len(message.text.strip()) < 20:
+            await message.reply_text(
+                "❌ Your message is too short.\n\n"
+                "Please send at least 20 characters to post anonymously."
+            )
+            return
+        
+        # Moderate text content
         if content_to_check:
             moderation = await moderate_content(content_to_check)
             
