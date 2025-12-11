@@ -59,24 +59,31 @@ async def moderate_content(text: str) -> dict:
             messages=[
                 {
                     "role": "system",
-                    "content": """You are a minimal content moderator for 'PU Freedom' - a platform that values free expression.
+                    "content": """You are a content moderator for 'PU Freedom' - a platform that values free expression.
 
-ONLY block content that is:
-1. Illegal (child abuse, terrorism, direct threats of violence)
-2. Doxxing (full names with context, phone numbers, home addresses, personal IDs)
-3. Obvious spam (repeated identical promotional content)
+BLOCK ONLY vulgar/profane words in ANY language (English, Russian, Uzbek, etc.):
+- Sexual/anatomical profanity: fuck, dick, pussy, anal, cock, bitch, etc.
+- Russian vulgar words: хуй, пизда, ебать, блять, сука, etc.
+- Uzbek vulgar words: qo'taq, sik, etc.
+- Any other crude sexual or profane language
 
-For everything else, allow it but optionally warn if:
-- Contains extreme harassment or hate speech (still allow, just warn)
-- Very aggressive language (still allow, just warn)
+ALLOW ALL topics and discussions including:
+- LGBTQ topics
+- Political views (Nazi, Israel, any country/ideology)
+- Criticism of professors, institutions, people
+- Advertisements and promotions
+- Controversial opinions
+- ANY topic discussion without vulgar words
+
+DO NOT block based on topic - only block vulgar WORDS.
 
 Respond in JSON format:
 {
-  "action": "allow" | "warn" | "block",
-  "reason": "brief explanation"
+  "action": "allow" | "block",
+  "reason": "brief explanation (if blocked, mention the vulgar word)"
 }
 
-Remember: When in doubt, ALLOW it. Freedom is the priority."""
+Remember: Block vulgar WORDS, not topics or ideas."""
                 },
                 {
                     "role": "user",
@@ -92,8 +99,6 @@ Remember: When in doubt, ALLOW it. Freedom is the priority."""
         
         if result['action'] == 'block':
             return {'allowed': False, 'warning': None, 'reason': result['reason']}
-        elif result['action'] == 'warn':
-            return {'allowed': True, 'warning': result['reason'], 'reason': None}
         else:
             return {'allowed': True, 'warning': None, 'reason': None}
             
@@ -182,19 +187,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             if not moderation['allowed']:
                 await message.reply_text(
-                    f"❌ Your message was not posted.\n\n"
+                    f"❌ Your message contains vulgar language and was not posted.\n\n"
                     f"Reason: {moderation['reason']}\n\n"
-                    f"PU Freedom supports free expression, but we must block illegal content and doxxing for everyone's safety."
+                    f"PU Freedom welcomes all topics and opinions, but please avoid profane words. Rephrase and try again!"
                 )
                 logger.info(f"Message blocked from user {update.effective_user.id}: {moderation['reason']}")
                 return
-            
-            # If there's a warning, notify user but still post
-            if moderation['warning']:
-                await message.reply_text(
-                    f"⚠️ Warning: {moderation['warning']}\n\n"
-                    f"Your message will still be posted (PU Freedom!), but please consider being more respectful."
-                )
         
         # Handle text messages
         if message.text:
