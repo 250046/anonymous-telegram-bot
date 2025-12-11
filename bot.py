@@ -21,16 +21,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize OpenAI client
-openai_client = None
-if OPENAI_API_KEY:
-    openai_client = OpenAI(api_key=OPENAI_API_KEY)
-
 # Get credentials from environment variables
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL_ID')
 GROUP_ID = os.getenv('TELEGRAM_GROUP_ID')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+
+# Initialize OpenAI client
+openai_client = None
+if OPENAI_API_KEY:
+    openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send welcome message when /start is issued."""
