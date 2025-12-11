@@ -58,10 +58,6 @@ async def moderate_content(text: str) -> dict:
         # Russian
         'хуй', 'пизда', 'ебать', 'ебал', 'ебаный', 'блять', 'блядь', 'сука', 
         'хер', 'жопа', 'говно', 'срать', 'ссать', 'мудак', 'пидор', 'шлюха', 'сучка',
-        # Uzbek
-        'qotoq', "qo'taq", 'jalap', 'sik', 'sikmoq', 'sikish', 'sikaman', 'jinni', 
-        'orospi', 'fahisha', 'foxisha', 'fohisha', 'yalang', 'yala naxoy', 'am', 
-        'suka', 'buvingni ami', "ko't", "ko'tingga sikaman", 'seks',
     ]
     
     # Check for vulgar words (case-insensitive)
@@ -308,91 +304,6 @@ async def delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error deleting message: {e}")
         await query.edit_message_text("❌ Failed to delete the message. It may have already been deleted.")
 
-async def generate_ai_message() -> str:
-    """Generate a realistic anonymous message using AI."""
-    if not openai_client:
-        return None
-    
-    try:
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": """You are a real university student posting anonymously on 'PU Freedom' channel.
-
-Write like a REAL person texting casually:
-- Use lowercase sometimes
-- Make typos occasionally 
-- Use "..." or ".." for pauses
-- No perfect grammar or dashes
-- Short sentences or fragments
-- Use "tbh", "ngl", "fr", "lol" naturally
-- Sound like you're typing fast on phone
-
-Mix these types (30% should be CONTROVERSIAL to spark debate):
-
-CONTROVERSIAL (spark discussion):
-- Unpopular opinions about professors, courses, university rules
-- Hot takes on relationships, dating culture
-- Criticism of student groups or behaviors
-- Provocative questions about society, politics
-- Challenge common beliefs
-
-REGULAR:
-- Confessions (crushes, secrets)
-- Funny observations
-- Student struggles
-- Cringe moments
-- Random thoughts
-- Questions
-
-Requirements:
-- 1-3 sentences max
-- Sound like texting, not writing
-- NO vulgar words
-- Be authentic and casual
-- Sometimes controversial/provocative
-
-Just return the message, nothing else."""
-                },
-                {
-                    "role": "user",
-                    "content": "Generate one anonymous message:"
-                }
-            ],
-            temperature=1.0,
-            max_tokens=120
-        )
-        
-        return response.choices[0].message.content.strip()
-        
-    except Exception as e:
-        logger.error(f"Error generating AI message: {e}")
-        return None
-
-async def auto_post_messages(application):
-    """Automatically post AI-generated messages every ~6 minutes (10 per hour)."""
-    while True:
-        try:
-            # Wait 6 minutes (360 seconds) between posts
-            await asyncio.sleep(360)
-            
-            # Generate message
-            message = await generate_ai_message()
-            
-            if message:
-                # Post to channel
-                await application.bot.send_message(
-                    chat_id=CHANNEL_ID,
-                    text=message
-                )
-                logger.info(f"Auto-posted AI message: {message[:50]}...")
-            
-        except Exception as e:
-            logger.error(f"Error in auto-post: {e}")
-            await asyncio.sleep(60)  # Wait 1 minute on error
-
 async def main():
     """Start the bot."""
     if not BOT_TOKEN or not CHANNEL_ID:
@@ -419,11 +330,6 @@ async def main():
     await application.initialize()
     await application.start()
     await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-    
-    # Start auto-posting in background
-    if openai_client:
-        asyncio.create_task(auto_post_messages(application))
-        logger.info("Auto-posting enabled: 10 messages per hour")
     
     # Keep the bot running
     try:
