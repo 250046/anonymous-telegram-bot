@@ -2,8 +2,8 @@ import os
 import sys
 import logging
 import asyncio
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -109,10 +109,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         message = update.message
+        sent_message = None
         
         # Handle text messages
         if message.text:
-            await context.bot.send_message(
+            sent_message = await context.bot.send_message(
                 chat_id=CHANNEL_ID,
                 text=message.text
             )
@@ -121,7 +122,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif message.photo:
             photo = message.photo[-1]  # Get highest resolution
             caption = message.caption or ""
-            await context.bot.send_photo(
+            sent_message = await context.bot.send_photo(
                 chat_id=CHANNEL_ID,
                 photo=photo.file_id,
                 caption=caption
@@ -130,7 +131,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Handle videos
         elif message.video:
             caption = message.caption or ""
-            await context.bot.send_video(
+            sent_message = await context.bot.send_video(
                 chat_id=CHANNEL_ID,
                 video=message.video.file_id,
                 caption=caption
@@ -138,14 +139,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Handle voice messages
         elif message.voice:
-            await context.bot.send_voice(
+            sent_message = await context.bot.send_voice(
                 chat_id=CHANNEL_ID,
                 voice=message.voice.file_id
             )
         
         # Handle stickers
         elif message.sticker:
-            await context.bot.send_sticker(
+            sent_message = await context.bot.send_sticker(
                 chat_id=CHANNEL_ID,
                 sticker=message.sticker.file_id
             )
@@ -153,7 +154,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Handle documents
         elif message.document:
             caption = message.caption or ""
-            await context.bot.send_document(
+            sent_message = await context.bot.send_document(
                 chat_id=CHANNEL_ID,
                 document=message.document.file_id,
                 caption=caption
@@ -166,8 +167,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-        # Confirm to user
-        await message.reply_text("✅ Your message has been posted anonymously!")
+        # Create delete button with message ID
+        keyboard = [[InlineKeyboardButton("🗑️ Delete", callback_data=f"delete_{sent_message.message_id}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Confirm to user with delete button
+        await message.reply_text(
+            "✅ Your message has been posted anonymously!",
+            reply_markup=reply_markup
+        )
         logger.info(f"Message posted to channel from user {update.effective_user.id}")
         
     except Exception as e:
@@ -175,6 +183,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text(
             "❌ Sorry, there was an error posting your message. Please try again later."
         )
+
+async def delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle delete button callback."""
+    query = update.callback_query
+    await query.answer()
+    
+    try:
+        # Extract message ID from callback data
+        message_id = int(query.data.split('_')[1])
+        
+        # Delete the message from channel
+        await context.bot.delete_message(chat_id=CHANNEL_ID, message_id=message_id)
+        
+        # Update the confirmation message
+        await query.edit_message_text("🗑️ Your message has been deleted from the channel.")
+        logger.info(f"Message {message_id} deleted by user {update.effective_user.id}")
+        
+    except Exception as e:
+        logger.error(f"Error deleting message: {e}")
+        await query.edit_message_text("❌ Failed to delete the message. It may have already been deleted.")
 
 async def main():
     """Start the bot."""
@@ -189,6 +217,7 @@ async def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("anon", anon_command))
+    application.add_handler(CallbackQueryHandler(delete_callback, pattern="^delete_"))
     application.add_handler(MessageHandler(
         filters.ALL & ~filters.COMMAND & filters.ChatType.PRIVATE,
         handle_message
