@@ -47,9 +47,34 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def moderate_content(text: str) -> dict:
     """
-    Use OpenAI to check content for minimal censorship.
+    Check content for vulgar words using keyword filter + AI backup.
     Returns: {'allowed': bool, 'warning': str or None, 'reason': str or None}
     """
+    # Comprehensive vulgar word list (case-insensitive)
+    vulgar_words = [
+        # English
+        'fuck', 'shit', 'dick', 'cock', 'pussy', 'anal', 'bitch', 'ass', 'bastard',
+        'cunt', 'whore', 'slut', 'sex', 'penis', 'vagina', 'porn', 'nude',
+        # Russian
+        'хуй', 'пизда', 'ебать', 'ебал', 'ебаный', 'блять', 'блядь', 'сука', 
+        'хер', 'жопа', 'говно', 'срать', 'ссать', 'мудак', 'пидор', 'шлюха',
+        # Uzbek
+        'qotoq', 'qo\'taq', 'jalap', 'sik', 'sikmoq', 'jinni', 'orospi', 
+        'fahisha', 'yalang', 'qo'taq',
+    ]
+    
+    # Check for vulgar words (case-insensitive)
+    text_lower = text.lower()
+    for word in vulgar_words:
+        # Check if word exists as whole word or part of text
+        if word in text_lower:
+            return {
+                'allowed': False, 
+                'warning': None, 
+                'reason': f'Contains vulgar word: "{word}"'
+            }
+    
+    # If no keywords found, use AI as backup check
     if not openai_client:
         return {'allowed': True, 'warning': None, 'reason': None}
     
@@ -59,31 +84,18 @@ async def moderate_content(text: str) -> dict:
             messages=[
                 {
                     "role": "system",
-                    "content": """You are a content moderator for 'PU Freedom' - a platform that values free expression.
+                    "content": """You are a backup content moderator for 'PU Freedom'.
 
-BLOCK ONLY vulgar/profane words in ANY language (English, Russian, Uzbek, etc.):
-- Sexual/anatomical profanity: fuck, dick, pussy, anal, cock, bitch, etc.
-- Russian vulgar words: хуй, пизда, ебать, блять, сука, etc.
-- Uzbek vulgar words: qo'taq, sik, etc.
-- Any other crude sexual or profane language
+ONLY block if you find vulgar/profane words that weren't caught by the keyword filter.
+Look for creative spellings, slang, or other crude language.
 
-ALLOW ALL topics and discussions including:
-- LGBTQ topics
-- Political views (Nazi, Israel, any country/ideology)
-- Criticism of professors, institutions, people
-- Advertisements and promotions
-- Controversial opinions
-- ANY topic discussion without vulgar words
-
-DO NOT block based on topic - only block vulgar WORDS.
+ALLOW ALL topics - only block vulgar WORDS.
 
 Respond in JSON format:
 {
   "action": "allow" | "block",
-  "reason": "brief explanation (if blocked, mention the vulgar word)"
-}
-
-Remember: Block vulgar WORDS, not topics or ideas."""
+  "reason": "brief explanation if blocked"
+}"""
                 },
                 {
                     "role": "user",
@@ -91,7 +103,7 @@ Remember: Block vulgar WORDS, not topics or ideas."""
                 }
             ],
             temperature=0.3,
-            max_tokens=150
+            max_tokens=100
         )
         
         import json
