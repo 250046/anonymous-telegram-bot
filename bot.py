@@ -195,10 +195,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Check minimum length for text messages
         content_to_check = message.text or message.caption or ""
-        if message.text and len(message.text.strip()) < 20:
+        if message.text and len(message.text.strip()) < 10:
             await message.reply_text(
                 "❌ Your message is too short.\n\n"
-                "Please send at least 20 characters to post anonymously."
+                "Please send at least 10 characters to post anonymously."
             )
             return
         
