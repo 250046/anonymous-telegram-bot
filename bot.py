@@ -5,6 +5,7 @@ import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from dotenv import load_dotenv
+from openai import OpenAI
 
 # Load environment variables from .env file
 load_dotenv()
@@ -20,10 +21,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Initialize OpenAI client
+openai_client = None
+if OPENAI_API_KEY:
+    openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
 # Get credentials from environment variables
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL_ID')
 GROUP_ID = os.getenv('TELEGRAM_GROUP_ID')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send welcome message when /start is issued."""
@@ -37,6 +44,63 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Type /help for more information."
     )
     await update.message.reply_text(welcome_text)
+
+async def moderate_content(text: str) -> dict:
+    """
+    Use OpenAI to check content for minimal censorship.
+    Returns: {'allowed': bool, 'warning': str or None, 'reason': str or None}
+    """
+    if not openai_client:
+        return {'allowed': True, 'warning': None, 'reason': None}
+    
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": """You are a minimal content moderator for 'PU Freedom' - a platform that values free expression.
+
+ONLY block content that is:
+1. Illegal (child abuse, terrorism, direct threats of violence)
+2. Doxxing (full names with context, phone numbers, home addresses, personal IDs)
+3. Obvious spam (repeated identical promotional content)
+
+For everything else, allow it but optionally warn if:
+- Contains extreme harassment or hate speech (still allow, just warn)
+- Very aggressive language (still allow, just warn)
+
+Respond in JSON format:
+{
+  "action": "allow" | "warn" | "block",
+  "reason": "brief explanation"
+}
+
+Remember: When in doubt, ALLOW it. Freedom is the priority."""
+                },
+                {
+                    "role": "user",
+                    "content": f"Check this message:\n\n{text}"
+                }
+            ],
+            temperature=0.3,
+            max_tokens=150
+        )
+        
+        import json
+        result = json.loads(response.choices[0].message.content)
+        
+        if result['action'] == 'block':
+            return {'allowed': False, 'warning': None, 'reason': result['reason']}
+        elif result['action'] == 'warn':
+            return {'allowed': True, 'warning': result['reason'], 'reason': None}
+        else:
+            return {'allowed': True, 'warning': None, 'reason': None}
+            
+    except Exception as e:
+        logger.error(f"Moderation error: {e}")
+        # On error, allow the message (fail open, not closed)
+        return {'allowed': True, 'warning': None, 'reason': None}
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send help message when /help is issued."""
@@ -110,6 +174,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         message = update.message
         sent_message = None
+        
+        # Moderate text content
+        content_to_check = message.text or message.caption or ""
+        if content_to_check:
+            moderation = await moderate_content(content_to_check)
+            
+            if not moderation['allowed']:
+                await message.reply_text(
+                    f"❌ Your message was not posted.\n\n"
+                    f"Reason: {moderation['reason']}\n\n"
+                    f"PU Freedom supports free expression, but we must block illegal content and doxxing for everyone's safety."
+                )
+                logger.info(f"Message blocked from user {update.effective_user.id}: {moderation['reason']}")
+                return
+            
+            # If there's a warning, notify user but still post
+            if moderation['warning']:
+                await message.reply_text(
+                    f"⚠️ Warning: {moderation['warning']}\n\n"
+                    f"Your message will still be posted (PU Freedom!), but please consider being more respectful."
+                )
         
         # Handle text messages
         if message.text:
