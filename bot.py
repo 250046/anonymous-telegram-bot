@@ -54,6 +54,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📱 In Private Chat:\n"
         "• Send me any message (text, photo, etc.)\n"
         "• I'll post it anonymously to the channel\n\n"
+        "↩️ Reply to Channel Posts:\n"
+        "• Right-click a channel message → 'Reply in another chat'\n"
+        "• Select this bot and type your reply\n"
+        "• Your reply will be posted with a quote-link!\n\n"
         "💬 In Group Comments:\n"
         "• Use /anon [your message] to post anonymously\n"
         "• Reply to a message and use /anon [your message] to reply anonymously\n\n"
@@ -133,6 +137,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message = update.message
         sent_message = None
         sent_messages = []  # For media groups
+        reply_to_message_id = None
+        
+        # Check if this is a reply to a channel message (via "Reply in another chat")
+        if message.external_reply:
+            ext_reply = message.external_reply
+            # Check if it's from our channel
+            if ext_reply.chat and str(ext_reply.chat.id) == CHANNEL_ID:
+                reply_to_message_id = ext_reply.message_id
+                logger.info(f"Detected reply to channel message {reply_to_message_id}")
+        
+        # Also check for quote (another way Telegram sends this info)
+        if message.quote and not reply_to_message_id:
+            # Quote contains the original message info
+            if hasattr(message, 'reply_to_message') and message.reply_to_message:
+                if message.reply_to_message.forward_origin:
+                    origin = message.reply_to_message.forward_origin
+                    if hasattr(origin, 'chat') and str(origin.chat.id) == CHANNEL_ID:
+                        reply_to_message_id = origin.message_id
         
         # Check minimum length for text messages
         if message.text and len(message.text.strip()) < 10:
@@ -157,7 +179,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 context.bot_data['media_groups'][key] = {
                     'media': [],
                     'caption': None,
-                    'chat_id': message.chat.id
+                    'chat_id': message.chat.id,
+                    'reply_to_message_id': reply_to_message_id
                 }
             
             # Add media to group
@@ -185,7 +208,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         
                         sent_msgs = await context.bot.send_media_group(
                             chat_id=CHANNEL_ID,
-                            media=group_data['media']
+                            media=group_data['media'],
+                            reply_to_message_id=group_data['reply_to_message_id']
                         )
                         
                         # Create delete button for first message
@@ -208,7 +232,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if message.text:
             sent_message = await context.bot.send_message(
                 chat_id=CHANNEL_ID,
-                text=message.text
+                text=message.text,
+                reply_to_message_id=reply_to_message_id
             )
         
         # Handle photos (single)
@@ -218,7 +243,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sent_message = await context.bot.send_photo(
                 chat_id=CHANNEL_ID,
                 photo=photo.file_id,
-                caption=caption
+                caption=caption,
+                reply_to_message_id=reply_to_message_id
             )
         
         # Handle videos
@@ -227,14 +253,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sent_message = await context.bot.send_video(
                 chat_id=CHANNEL_ID,
                 video=message.video.file_id,
-                caption=caption
+                caption=caption,
+                reply_to_message_id=reply_to_message_id
             )
         
         # Handle voice messages
         elif message.voice:
             sent_message = await context.bot.send_voice(
                 chat_id=CHANNEL_ID,
-                voice=message.voice.file_id
+                voice=message.voice.file_id,
+                reply_to_message_id=reply_to_message_id
             )
         
         # Handle audio files (mp3, etc.)
@@ -243,7 +271,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sent_message = await context.bot.send_audio(
                 chat_id=CHANNEL_ID,
                 audio=message.audio.file_id,
-                caption=caption
+                caption=caption,
+                reply_to_message_id=reply_to_message_id
             )
         
         # Handle polls
@@ -255,14 +284,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 options=[opt.text for opt in poll.options],
                 is_anonymous=poll.is_anonymous,
                 type=poll.type,
-                allows_multiple_answers=poll.allows_multiple_answers
+                allows_multiple_answers=poll.allows_multiple_answers,
+                reply_to_message_id=reply_to_message_id
             )
         
         # Handle stickers
         elif message.sticker:
             sent_message = await context.bot.send_sticker(
                 chat_id=CHANNEL_ID,
-                sticker=message.sticker.file_id
+                sticker=message.sticker.file_id,
+                reply_to_message_id=reply_to_message_id
             )
         
         # Handle documents
@@ -271,7 +302,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             sent_message = await context.bot.send_document(
                 chat_id=CHANNEL_ID,
                 document=message.document.file_id,
-                caption=caption
+                caption=caption,
+                reply_to_message_id=reply_to_message_id
             )
         
         else:
