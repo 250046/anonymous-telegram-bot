@@ -59,8 +59,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Reply to a message and use /anon [your message] to reply anonymously\n\n"
         "📌 Supported content:\n"
         "• Text messages\n"
-        "• Photos with captions\n"
-        "• Videos, voice messages, stickers\n\n"
+        "• Photos (single or multiple)\n"
+        "• Videos, voice messages, stickers\n"
+        "• Audio files (mp3, etc.)\n"
+        "• Polls\n"
+        "• Documents\n\n"
         "❌ Rules:\n"
         "• Be respectful\n"
         "• No spam or harassment\n"
@@ -73,6 +76,7 @@ async def anon_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /anon command in group for anonymous comments."""
     try:
         message = update.message
+        user_id = update.effective_user.id
         
         # Only work in the designated group
         if str(message.chat.id) != GROUP_ID:
@@ -86,6 +90,9 @@ async def anon_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         anon_text = ' '.join(context.args)
         
+        # Format the message with "via /anon" in monospace
+        formatted_text = f"{anon_text}\n\nvia `/anon`"
+        
         # Check if this is a reply to another message
         reply_to_message_id = None
         if message.reply_to_message:
@@ -94,14 +101,20 @@ async def anon_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Delete the original message with /anon command
         await context.bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
         
-        # Send the anonymous message
+        # Create delete button - encode user_id so only sender can delete
+        keyboard = [[InlineKeyboardButton("🗑️", callback_data=f"anondelete_{user_id}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Send the anonymous message with delete button
         await context.bot.send_message(
             chat_id=GROUP_ID,
-            text=anon_text,
-            reply_to_message_id=reply_to_message_id
+            text=formatted_text,
+            reply_to_message_id=reply_to_message_id,
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
         )
         
-        logger.info(f"Anonymous comment posted in group by user {update.effective_user.id}")
+        logger.info(f"Anonymous comment posted in group by user {user_id}")
         
     except Exception as e:
         logger.error(f"Error handling /anon command: {e}")
@@ -119,6 +132,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         message = update.message
         sent_message = None
+        sent_messages = []  # For media groups
         
         # Check minimum length for text messages
         if message.text and len(message.text.strip()) < 10:
@@ -128,6 +142,68 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
+        # Handle media groups (multiple photos/videos in one message)
+        if message.media_group_id:
+            media_group_id = message.media_group_id
+            user_id = update.effective_user.id
+            
+            # Initialize storage for this media group
+            if 'media_groups' not in context.bot_data:
+                context.bot_data['media_groups'] = {}
+            
+            key = f"{user_id}_{media_group_id}"
+            
+            if key not in context.bot_data['media_groups']:
+                context.bot_data['media_groups'][key] = {
+                    'media': [],
+                    'caption': None,
+                    'chat_id': message.chat.id
+                }
+            
+            # Add media to group
+            from telegram import InputMediaPhoto, InputMediaVideo
+            if message.photo:
+                media_item = InputMediaPhoto(media=message.photo[-1].file_id)
+                context.bot_data['media_groups'][key]['media'].append(media_item)
+            elif message.video:
+                media_item = InputMediaVideo(media=message.video.file_id)
+                context.bot_data['media_groups'][key]['media'].append(media_item)
+            
+            # Capture caption from first message with caption
+            if message.caption and not context.bot_data['media_groups'][key]['caption']:
+                context.bot_data['media_groups'][key]['caption'] = message.caption
+            
+            # Schedule sending after a short delay to collect all media
+            async def send_media_group_delayed():
+                await asyncio.sleep(1)  # Wait for all media to arrive
+                if key in context.bot_data['media_groups']:
+                    group_data = context.bot_data['media_groups'].pop(key)
+                    if group_data['media']:
+                        # Set caption on first media item
+                        if group_data['caption']:
+                            group_data['media'][0].caption = group_data['caption']
+                        
+                        sent_msgs = await context.bot.send_media_group(
+                            chat_id=CHANNEL_ID,
+                            media=group_data['media']
+                        )
+                        
+                        # Create delete button for first message
+                        keyboard = [[InlineKeyboardButton("🗑️ Delete All", callback_data=f"deletegroup_{sent_msgs[0].message_id}_{len(sent_msgs)}")]]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        
+                        await context.bot.send_message(
+                            chat_id=group_data['chat_id'],
+                            text="✅ Your media group has been posted anonymously!",
+                            reply_markup=reply_markup
+                        )
+                        logger.info(f"Media group posted to channel from user {user_id}")
+            
+            # Only schedule once per media group
+            if len(context.bot_data['media_groups'][key]['media']) == 1:
+                asyncio.create_task(send_media_group_delayed())
+            return
+        
         # Handle text messages
         if message.text:
             sent_message = await context.bot.send_message(
@@ -135,7 +211,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text=message.text
             )
         
-        # Handle photos
+        # Handle photos (single)
         elif message.photo:
             photo = message.photo[-1]  # Get highest resolution
             caption = message.caption or ""
@@ -161,6 +237,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 voice=message.voice.file_id
             )
         
+        # Handle audio files (mp3, etc.)
+        elif message.audio:
+            caption = message.caption or ""
+            sent_message = await context.bot.send_audio(
+                chat_id=CHANNEL_ID,
+                audio=message.audio.file_id,
+                caption=caption
+            )
+        
+        # Handle polls
+        elif message.poll:
+            poll = message.poll
+            sent_message = await context.bot.send_poll(
+                chat_id=CHANNEL_ID,
+                question=poll.question,
+                options=[opt.text for opt in poll.options],
+                is_anonymous=poll.is_anonymous,
+                type=poll.type,
+                allows_multiple_answers=poll.allows_multiple_answers
+            )
+        
         # Handle stickers
         elif message.sticker:
             sent_message = await context.bot.send_sticker(
@@ -180,7 +277,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await message.reply_text(
                 "⚠️ Sorry, this type of content is not supported yet.\n"
-                "Please send text, photos, videos, or voice messages."
+                "Please send text, photos, videos, audio, polls, or voice messages."
             )
             return
         
@@ -204,18 +301,49 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle delete button callback."""
     query = update.callback_query
-    await query.answer()
     
     try:
-        # Extract message ID from callback data
-        message_id = int(query.data.split('_')[1])
+        data_parts = query.data.split('_')
         
-        # Delete the message from channel
-        await context.bot.delete_message(chat_id=CHANNEL_ID, message_id=message_id)
+        # Handle /anon message deletion in group
+        if data_parts[0] == 'anondelete':
+            allowed_user_id = int(data_parts[1])
+            clicking_user_id = update.effective_user.id
+            
+            # Check if the clicking user is the original sender
+            if clicking_user_id != allowed_user_id:
+                await query.answer("❌ Only the sender can delete this message.", show_alert=True)
+                return
+            
+            await query.answer()
+            # Delete the anon message from group
+            await context.bot.delete_message(chat_id=query.message.chat.id, message_id=query.message.message_id)
+            logger.info(f"Anon message deleted by user {clicking_user_id}")
+            return
         
-        # Update the confirmation message
-        await query.edit_message_text("🗑️ Your message has been deleted from the channel.")
-        logger.info(f"Message {message_id} deleted by user {update.effective_user.id}")
+        await query.answer()
+        
+        # Handle media group deletion
+        if data_parts[0] == 'deletegroup':
+            first_message_id = int(data_parts[1])
+            count = int(data_parts[2])
+            
+            # Delete all messages in the media group
+            for i in range(count):
+                try:
+                    await context.bot.delete_message(chat_id=CHANNEL_ID, message_id=first_message_id + i)
+                except Exception:
+                    pass  # Some messages might already be deleted
+            
+            await query.edit_message_text("🗑️ Your media group has been deleted from the channel.")
+            logger.info(f"Media group starting at {first_message_id} deleted by user {update.effective_user.id}")
+        
+        # Handle single message deletion
+        else:
+            message_id = int(data_parts[1])
+            await context.bot.delete_message(chat_id=CHANNEL_ID, message_id=message_id)
+            await query.edit_message_text("🗑️ Your message has been deleted from the channel.")
+            logger.info(f"Message {message_id} deleted by user {update.effective_user.id}")
         
     except Exception as e:
         logger.error(f"Error deleting message: {e}")
@@ -235,6 +363,8 @@ async def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("anon", anon_command))
     application.add_handler(CallbackQueryHandler(delete_callback, pattern="^delete_"))
+    application.add_handler(CallbackQueryHandler(delete_callback, pattern="^deletegroup_"))
+    application.add_handler(CallbackQueryHandler(delete_callback, pattern="^anondelete_"))
     application.add_handler(MessageHandler(
         filters.ALL & ~filters.COMMAND & filters.ChatType.PRIVATE,
         handle_message
